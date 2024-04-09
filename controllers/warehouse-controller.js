@@ -1,34 +1,46 @@
 const axios = require('axios')
 const Warehouse = require('../models/warehouse-model')
 const Inventory = require('../models/inventory-model')
+const User = require('../models/user-model')
 const HttpError = require('../models/http-error')
 const mongoose = require('mongoose')
 
 //Create warehouse
 exports.createWarehouse = async(req, res, next) => {
-    try{
-    const { name, location, inventoryStored } = req.body
-    //Find location
-    const result = await axios.get(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json`)
-    if(result.data.length === 0) return next(new HttpError('Invalid location', 400))
-    const {lat, lon} = result.data[0]
-    //Create new 
-    const newWarehouse = await Warehouse.create({name, location: { lat, lng: lon }, inventoryStored: [inventoryStored] })
-    //Find associated inventory
-    const inventoryItem = await Inventory.findById(inventoryStored)
-    //No inventory found
-    if(!inventoryItem) return next(new HttpError('No inventory found', 404))
-    //Update Inventory for warehouse id
-    inventoryItem.warehouse = newWarehouse._id
-    await inventoryItem.save()
-    res.status(200).json({warehouse: newWarehouse})
-    }
-    catch(err) {
+    try {
+        const { name, location, inventoryStored } = req.body;
+        // Find location
+        const result = await axios.get(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json`);
+        if(result.data.length === 0) return next(new HttpError('Invalid location', 400));
+        const { lat, lon } = result.data[0];
+        // Find associated inventory
+        const inventoryItems = await Inventory.find({ _id: { $in: inventoryStored } });
+        // Check if all inventory items were found
+        if(inventoryItems.length !== inventoryStored.length) {
+            return next(new HttpError('Not all inventory items found', 404));
+        }
+        // Get username from warehouse, and save corresponding warehouse there
+        const username = req.session.username;
+        const correspondingUser = await User.findOne({ username });
+        // Create new warehouse
+        const newWarehouse = await Warehouse.create({
+            name,
+            location: { lat, lng: lon },
+            inventoryStored,
+            user: correspondingUser._id 
+        });
+        correspondingUser.warehouses.push(newWarehouse._id);
+        // Update Inventory for warehouse id
+        for(const inventoryItem of inventoryItems) {
+            inventoryItem.warehouse = newWarehouse._id;
+            await inventoryItem.save();
+        }
+        await correspondingUser.save();
+        res.status(200).json({ warehouse: newWarehouse });
+    } catch(err) {
         return next(new HttpError(err.message, 400));
     }
-}
-
-
+};
 
 //Retrieve a single warehouse using Id
 exports.getWarehouseById = async (req, res, next) => {
@@ -113,6 +125,10 @@ exports.deleteWarehouse = async(req, res, next) => {
         await Inventory.deleteMany({ warehouse: id })
         //Delete warehouse
         await Warehouse.findByIdAndDelete(id);
+        const username = req.session.username
+        const correspondingUser = await User.findOne({ username })
+        correspondingUser.warehouses = correspondingUser.warehouses.filter(warehouseId => warehouseId.toString() !== id);
+        await correspondingUser.save()
     }
     catch(err){
         if (err instanceof mongoose.CastError) {  
