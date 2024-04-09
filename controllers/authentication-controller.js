@@ -31,7 +31,7 @@ exports.postLogin = async(req, res, next) => {
     const { username, password } = req.body
     const existingUsername = await User.findOne({ username })
     if(!existingUsername) return next(new HttpError('No user found', 500));
-    const validPassword = bcrypt.compare(password, existingUsername.password)
+    const validPassword = await bcrypt.compare(password, existingUsername.password)
     if(validPassword){
         req.session.username = username
         res.status(200).json({ message: 'Logged in successfully' })
