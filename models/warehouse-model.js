@@ -19,7 +19,11 @@ const warehouse = new schema({
     inventoryStored: [{
         type: mongoose.Types.ObjectId,
         ref: 'Inventory'
-    }]
+    }],
+    user: {
+        type: mongoose.Types.ObjectId,
+        ref: 'User'
+    }
 })
 
 module.exports = mongoose.model('Warehouse', warehouse)
