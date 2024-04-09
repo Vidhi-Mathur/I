@@ -1,25 +1,46 @@
 const HttpError = require('../models/http-error')
 const mongoose = require('mongoose')
+const User = require('../models/user-model')
+const bcrypt = require('bcryptjs')
 
 //If is protected route
 exports.protectedRoute = (req, res, next) => {
-    if(req.session.warehouse) next()
+    if(req.session.username) next()
     else res.status(401).json({ message: 'Unauthorized' })
 }
 
-exports.postLogin = (req, res, next) => {
-    const { username, password, warehouse } = req.body
-    if(username === 'admin' && password === 'mypassword123' && mongoose.Types.ObjectId.isValid(warehouse)){
-        //res.cookie('token', 'user_token', { httpOnly: true, expiresIn: '1m' })
-        //Any key, here, storing warehouses access
-        req.session.warehouse = new mongoose.Types.ObjectId(warehouse);
+exports.postSignup = async(req, res, next) => {
+    try {
+        const { username, password } = req.body
+        const existingUsername = await User.findOne({ username })
+        if(existingUsername) return res.status(200).json({ message: 'User already exist. Try login instead.'})
+        const hashedPassword = await bcrypt.hash(password, 12)
+        const newUser = new User({
+            username,
+            password: hashedPassword
+        })
+        await newUser.save()
+        res.status(201).json({ message: 'User created successfully!' });
+    }
+    catch(err){
+        return next(new HttpError('Can\'t signup, try again later', 500));
+    }
+}
+
+exports.postLogin = async(req, res, next) => {
+    const { username, password } = req.body
+    const existingUsername = await User.findOne({ username })
+    if(!existingUsername) return next(new HttpError('No user found', 500));
+    const validPassword = bcrypt.compare(password, existingUsername.password)
+    if(validPassword){
+        req.session.username = username
         res.status(200).json({ message: 'Logged in successfully' })
     }
     else res.status(404).json({ message: 'Invalid credentials' })
 }
 
 exports.postLogout = (req, res, next) => {
-    if(req.session.warehouse){
+    if(req.session.username){
         req.session.destroy(err => {
             if(err) return next(new HttpError('Can\'t logout, try again later', 500));
             res.clearCookie('connect.sid')
