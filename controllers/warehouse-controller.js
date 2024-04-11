@@ -20,8 +20,8 @@ exports.createWarehouse = async(req, res, next) => {
             return next(new HttpError('Not all inventory items found', 404));
         }
         // Get username from warehouse, and save corresponding warehouse there
-        const username = req.session.username;
-        const correspondingUser = await User.findOne({ username });
+        const user = req.session.user;
+        const correspondingUser = await User.findById(user)
         // Create new warehouse
         const newWarehouse = await Warehouse.create({
             name,
@@ -45,14 +45,16 @@ exports.createWarehouse = async(req, res, next) => {
 //Retrieve a single warehouse using Id
 exports.getWarehouseById = async (req, res, next) => {
     const { id } = req.params;
-    let storedWarehouse;
+    let storedWarehouse, owner;
     try {
         storedWarehouse = await Warehouse.findById(id);
-        if (!storedWarehouse) return next(new HttpError('No warehouse found for given id', 404));
+        console.log(typeof(storedWarehouse.user))
+        console.log(typeof(req.session.user))
+        if (!storedWarehouse || !storedWarehouse.user.equals(req.session.user)) return next(new HttpError('No warehouse found for given id', 404));
         res.status(200).json({ warehouse: storedWarehouse });
     } catch (err) {
         if (err instanceof mongoose.CastError) {  
-            return next(new HttpError('No product found', 404));
+            return next(new HttpError('No warehouse found', 404));
          }
         return next(new HttpError('Can\'t fetch warehouse, try again later' , 400));
     }    
@@ -62,7 +64,7 @@ exports.getWarehouseById = async (req, res, next) => {
 exports.getWarehouses = async(req, res, next) => {
     let storedWarehouses
     try {
-        storedWarehouses = await Warehouse.find()
+        storedWarehouses = await Warehouse.find({ user: req.session.user })
     }
     catch(err){
         return next(new HttpError('Can\'t fetch warehouses, try again later', 400));
@@ -125,8 +127,8 @@ exports.deleteWarehouse = async(req, res, next) => {
         await Inventory.deleteMany({ warehouse: id })
         //Delete warehouse
         await Warehouse.findByIdAndDelete(id);
-        const username = req.session.username
-        const correspondingUser = await User.findOne({ username })
+        const user = req.session.user
+        const correspondingUser = await User.findById(user)
         correspondingUser.warehouses = correspondingUser.warehouses.filter(warehouseId => warehouseId.toString() !== id);
         await correspondingUser.save()
     }
