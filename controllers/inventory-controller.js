@@ -15,7 +15,7 @@ exports.createProduct = async (req, res, next) => {
        }
        //Missing field
        if(!title || !price ||  !description || !quantity || !imageUrl || !warehouse){
-            return next(new HttpError('Missing field', 404));
+            return next(new HttpError('Missing field', 400));
        }
        //Save product
        const newProduct = new Inventory({ title, price, description, quantity, imageUrl, warehouse });
@@ -29,18 +29,19 @@ exports.createProduct = async (req, res, next) => {
        res.status(200).json({ product: newProduct });
    } catch (err) {
       //Error handling
-       return next(new HttpError('Can\'t save product, try again later', 404));
+       return next(new HttpError('Can\'t save product, try again later', 500));
    }
 };
 
 //Retrieve single inventory item using id
 exports.getProductById = async(req, res, next) => {
-   const id  = req.params.id
-   let storedProduct;
+   const  { id }  = req.params
+   let storedProduct, correspondingWarehouse;
    try {
       //Search
-      storedProduct = await Inventory.findById(id.toString());
-      if(!storedProduct) return next(new HttpError('No product found for given id', 404))
+      storedProduct = await Inventory.findById(id);
+      correspondingWarehouse = await Warehouse.findById(storedProduct.warehouse)
+      if(!storedProduct || !correspondingWarehouse || !correspondingWarehouse.user.equals(req.session.user)) return next(new HttpError('No product found for given id', 404))
    }
    catch(err){
       if (err instanceof mongoose.CastError) {  
@@ -53,13 +54,14 @@ exports.getProductById = async(req, res, next) => {
 
 //Retrieve all inventory items
 exports.getProducts = async(req, res, next) => {
-   let storedProducts;
+   let storedProducts, correspondingWarehouse;
    try {
+      correspondingWarehouse = await Warehouse.find({ user: req.session.user })
       //Get all products, so no criteria
-      storedProducts = await Inventory.find()
+      storedProducts = await Inventory.find({ warehouse: correspondingWarehouse })
    }
    catch(err){
-      return next(new HttpError('Can\'t fetch inventory, try again later', 400))
+      return next(new HttpError('Can\'t fetch inventory, try again later', 500))
    }
    res.status(200).json({products: storedProducts})
 }
@@ -68,7 +70,7 @@ exports.getProducts = async(req, res, next) => {
 exports.updateProduct = async(req, res, next) => {
    const { id } = req.params
    const { title, price, description, quantity, imageUrl, warehouse } = req.body
-   let inventory, oldWarehouse, warehouseId
+   let inventory, oldWarehouse, newWarehouse
    try {
    //Find id in database
    inventory = await Inventory.findById(id)
@@ -88,11 +90,11 @@ exports.updateProduct = async(req, res, next) => {
    //Remove Id of inventory updated from old warehouse
    oldWarehouse.inventoryStored = oldWarehouse.inventoryStored.filter(itemId => itemId.toString() !== id);
    await oldWarehouse.save();
-   warehouseId = await Warehouse.findById(warehouse);
+   newWarehouse = await Warehouse.findById(warehouse);
    //Update reference of inventoryStored[] in new Warehouse
-   if (!warehouseId.inventoryStored.includes(inventory._id)) {
-      warehouseId.inventoryStored.push(inventory._id);
-      await warehouseId.save();
+   if (!newWarehouse.inventoryStored.includes(inventory._id)) {
+      newWarehouse.inventoryStored.push(inventory._id);
+      await newWarehouse.save();
   }
    //Response
    res.status(200).json({product: inventory})
@@ -101,7 +103,7 @@ exports.updateProduct = async(req, res, next) => {
       if (err instanceof mongoose.CastError) {  
          return next(new HttpError('No product found', 404));
       }
-      return next(new HttpError('Can\'t update inventory, try again later', 400))
+      return next(new HttpError('Can\'t update inventory, try again later', 500))
    }
 }
 
@@ -124,7 +126,7 @@ exports.deleteProduct = async(req, res, next) => {
       if (err instanceof mongoose.CastError) {  
          return next(new HttpError('No product found for given id', 404));
       }
-      return next(new HttpError('Can\'t delete from inventory, try again later', 400));
+      return next(new HttpError('Can\'t delete from inventory, try again later', 500));
    }
    res.status(200).json({message: `Deleted product with id ${id}`});
 }
