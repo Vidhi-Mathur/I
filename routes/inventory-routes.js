@@ -3,13 +3,13 @@ const router = express.Router()
 const invertoryController = require('../controllers/inventory-controller')
 const { protectedRoute } = require('../controllers/authentication-controller')
 
+router.use(protectedRoute)
+
 //Retrieve single inventory item using id
 router.get('/:id', invertoryController.getProductById)
 
 //Retrieve all inventory items
 router.get('/', invertoryController.getProducts)
-
-router.use(protectedRoute)
 
 //Create inventory product
 router.post('/new', invertoryController.createProduct)
