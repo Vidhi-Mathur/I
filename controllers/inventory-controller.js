@@ -1,6 +1,5 @@
 const Inventory = require('../models/inventory-model')
 const mongoose = require('mongoose')
-const ObjectId = mongoose.Types.ObjectId;
 const HttpError = require('../models/http-error');
 const Warehouse = require('../models/warehouse-model');
 
