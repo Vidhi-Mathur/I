@@ -38,25 +38,23 @@ exports.createWarehouse = async(req, res, next) => {
         await correspondingUser.save();
         res.status(200).json({ warehouse: newWarehouse });
     } catch(err) {
-        return next(new HttpError(err.message, 400));
+        return next(new HttpError(err.message || 'Can\'t create warehouse, try again later ', 500));
     }
 };
 
 //Retrieve a single warehouse using Id
 exports.getWarehouseById = async (req, res, next) => {
     const { id } = req.params;
-    let storedWarehouse, owner;
+    let storedWarehouse;
     try {
         storedWarehouse = await Warehouse.findById(id);
-        console.log(typeof(storedWarehouse.user))
-        console.log(typeof(req.session.user))
         if (!storedWarehouse || !storedWarehouse.user.equals(req.session.user)) return next(new HttpError('No warehouse found for given id', 404));
         res.status(200).json({ warehouse: storedWarehouse });
     } catch (err) {
         if (err instanceof mongoose.CastError) {  
             return next(new HttpError('No warehouse found', 404));
          }
-        return next(new HttpError('Can\'t fetch warehouse, try again later' , 400));
+        return next(new HttpError('Can\'t fetch warehouse, try again later' , 500));
     }    
 };
 
@@ -67,7 +65,7 @@ exports.getWarehouses = async(req, res, next) => {
         storedWarehouses = await Warehouse.find({ user: req.session.user })
     }
     catch(err){
-        return next(new HttpError('Can\'t fetch warehouses, try again later', 400));
+        return next(new HttpError('Can\'t fetch warehouses, try again later', 500));
     }
     res.status(200).json({ warehouses: storedWarehouses })
 }
@@ -75,9 +73,8 @@ exports.getWarehouses = async(req, res, next) => {
 //Update warehouse
 exports.updateWarehouse = async(req, res, next) => {
     const { id } = req.params;
-    const { name, location, inventoryStored } = req.body;
-    let storedWarehouse;
-
+    const { name, location, inventoryStored, user } = req.body;
+    let storedWarehouse, oldUser, newUser;
     try {
         // Find warehouse by id
         storedWarehouse = await Warehouse.findById(id);
@@ -89,6 +86,7 @@ exports.updateWarehouse = async(req, res, next) => {
         // Update warehouse details
         storedWarehouse.name = name;
         storedWarehouse.location = { lat, lng: lon };
+        if(!storedWarehouse.user.equals(req.session.user)) return next(new HttpError('Unauthorized', 401));
         //Pull out old reference, and store new 
         await Warehouse.updateMany(
             { inventoryStored: { $in: inventoryStored } },
@@ -104,6 +102,17 @@ exports.updateWarehouse = async(req, res, next) => {
         }
         // Update inventoryStored array in warehouse
         storedWarehouse.inventoryStored = inventoryStored;
+        if(user){
+            //Update warehouses[] in User by removing reference of current warehouse from oldUser and adding to newUser
+            oldUser = await User.findById(req.session.user)
+            oldUser.warehouses = await oldUser.warehouses.filter(prevId => prevId.toString() !== id)
+            await oldUser.save()
+            newUser = await User.findById(user)
+            newUser.warehouses.push(id)
+            await newUser.save()
+            //update user in warehouse
+            storedWarehouse.user = newUser._id
+        }
         // Save updated warehouse
         await storedWarehouse.save();
         // Response
@@ -112,31 +121,32 @@ exports.updateWarehouse = async(req, res, next) => {
         if (err instanceof mongoose.CastError) {  
             return next(new HttpError('No product found', 404));
          }
-        return next(new HttpError('Can\'t update warehouse, try again later', 404));
+        return next(new HttpError('Can\'t update warehouse, try again later', 500));
     }
 };
 
 //Delete warehouse
 exports.deleteWarehouse = async(req, res, next) => {
-    const { id } = req.params
+    const { id } = req.params;
     let deleteWarehouse;
     try {
         deleteWarehouse = await Warehouse.findById(id);
-        if(!deleteWarehouse)  return next(new HttpError('No warehouse found', 404));
-        //Remove inventory associated with deleted warehouse
-        await Inventory.deleteMany({ warehouse: id })
-        //Delete warehouse
-        await Warehouse.findByIdAndDelete(id);
-        const user = req.session.user
-        const correspondingUser = await User.findById(user)
+        if (!deleteWarehouse) return next(new HttpError('No warehouse found', 404));
+        // Remove inventory associated with deleted warehouse
+        await Inventory.deleteMany({ warehouse: id });
+        // Remove warehouse from the user who owns it
+        const owner = deleteWarehouse.user;
+        const correspondingUser = await User.findById(owner);
+        if (!correspondingUser) return next(new HttpError('No user found', 404));
         correspondingUser.warehouses = correspondingUser.warehouses.filter(warehouseId => warehouseId.toString() !== id);
-        await correspondingUser.save()
-    }
-    catch(err){
+        await correspondingUser.save();
+        // Delete warehouse
+        await Warehouse.findByIdAndDelete(id);
+        res.status(200).json({ message: `Deleted warehouse with id ${id}` });
+    } catch(err) {
         if (err instanceof mongoose.CastError) {  
-            return next(new HttpError('No product found', 404));
-         }
-        return next(new HttpError('Can\'t delete warehouse, try again later', 400));
+            return next(new HttpError('Invalid warehouse ID', 404));
+        }
+        return next(new HttpError('Can\'t delete warehouse, try again later', 500));
     }
-    res.status(200).json({ message: `Deleted warehouse with id ${id}` })
 }
